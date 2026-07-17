@@ -102,6 +102,7 @@ async def main() -> None:
         )
 
         results = await pipeline.process_detections(
+            mission_id="MISSION-001",
             site_id="BTS-HN-001",
             camera_id="CAM-HN-001",
             detections=detections,

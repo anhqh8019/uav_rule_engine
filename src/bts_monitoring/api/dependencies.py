@@ -45,6 +45,9 @@ from bts_monitoring.repositories.mission_rule_repository import (
 from bts_monitoring.services.mission_rule_service import (
     MissionRuleService,
 )
+from bts_monitoring.services.rule_engine.factory import (
+    MissionRuleEngineFactory,
+)
 
 # =========================================================
 # Repository dependencies
@@ -187,13 +190,29 @@ def get_rule_engine(
 # Inference pipeline
 # =========================================================
 
+
+
+
+def get_mission_rule_engine_factory(
+    event_repository: AIEventRepository = Depends(
+        get_ai_event_repository
+    ),
+    mission_rule_repository: MissionRuleRepository = Depends(
+        get_mission_rule_repository
+    ),
+) -> MissionRuleEngineFactory:
+    return MissionRuleEngineFactory(
+        event_repository=event_repository,
+        mission_rule_repository=mission_rule_repository,
+    )
+
 def get_inference_pipeline(
     session: AsyncSession = Depends(get_db),
     event_service: AIEventService = Depends(
         get_ai_event_service
     ),
-    rule_engine: RuleEngine = Depends(
-        get_rule_engine
+    rule_engine_factory: MissionRuleEngineFactory = Depends(
+        get_mission_rule_engine_factory
     ),
     incident_service: IncidentService = Depends(
         get_incident_service
@@ -202,7 +221,6 @@ def get_inference_pipeline(
     return InferencePipeline(
         session=session,
         event_service=event_service,
-        rule_engine=rule_engine,
+        rule_engine_factory=rule_engine_factory,
         incident_service=incident_service,
     )
-

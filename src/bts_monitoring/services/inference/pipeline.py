@@ -25,6 +25,11 @@ from bts_monitoring.services.rule_engine.engine import (
     RuleEngine,
 )
 
+from bts_monitoring.services.rule_engine.factory import (
+    MissionRuleEngineFactory,
+)
+
+
 
 class InferencePipeline:
     def __init__(
@@ -32,26 +37,28 @@ class InferencePipeline:
         *,
         session: AsyncSession,
         event_service: AIEventService,
-        rule_engine: RuleEngine,
+        rule_engine_factory: MissionRuleEngineFactory,
         incident_service: IncidentService,
     ) -> None:
         self.session = session
         self.event_service = event_service
-        self.rule_engine = rule_engine
+        self.rule_engine_factory = rule_engine_factory
         self.incident_service = incident_service
 
     async def process_detection(
-        self,
-        *,
-        site_id: str,
-        camera_id: str,
-        detection: ModelDetection,
-        captured_at: datetime,
-        evidence_uri: str | None = None,
+            self,
+            *,
+            mission_id: str,
+            site_id: str,
+            camera_id: str,
+            detection: ModelDetection,
+            captured_at: datetime,
+            evidence_uri: str | None = None,
     ) -> tuple[
         AIEventModel,
         list[IncidentModel],
     ]:
+
         bbox = None
 
         if detection.bbox is not None:
@@ -95,9 +102,11 @@ class InferencePipeline:
                 commit=False,
             )
 
-            results = await self.rule_engine.evaluate(
-                event
+            rule_engine = await self.rule_engine_factory.create(
+                mission_id
             )
+
+            results = await rule_engine.evaluate(event)
 
             incidents: list[IncidentModel] = []
 
@@ -122,13 +131,14 @@ class InferencePipeline:
             raise
 
     async def process_detections(
-        self,
-        *,
-        site_id: str,
-        camera_id: str,
-        detections: list[ModelDetection],
-        captured_at: datetime,
-        evidence_uri: str | None = None,
+            self,
+            *,
+            mission_id: str,
+            site_id: str,
+            camera_id: str,
+            detections: list[ModelDetection],
+            captured_at: datetime,
+            evidence_uri: str | None = None,
     ) -> list[
         tuple[AIEventModel, list[IncidentModel]]
     ]:
@@ -136,6 +146,7 @@ class InferencePipeline:
 
         for detection in detections:
             item = await self.process_detection(
+                mission_id=mission_id,
                 site_id=site_id,
                 camera_id=camera_id,
                 detection=detection,
