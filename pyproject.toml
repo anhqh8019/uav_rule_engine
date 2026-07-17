@@ -1,0 +1,35 @@
+[tool.poetry]
+name = "bts-monitoring"
+version = "0.1.0"
+description = "AI monitoring platform for BTS sites"
+authors = ["Your Team"]
+packages = [{ include = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.13"
+fastapi = "^0.115"
+uvicorn = { extras = ["standard"], version = "^0.34" }
+pydantic = "^2.10"
+pydantic-settings = "^2.7"
+sqlalchemy = "^2.0"
+alembic = "^1.14"
+psycopg = { extras = ["binary"], version = "^3.2" }
+redis = "^5.2"
+httpx = "^0.28"
+opencv-python-headless = "^4.10"
+onnxruntime = "^1.20"
+numpy = "^2.1"
+python-multipart = "^0.0.20"
+structlog = "^24.4"
+prometheus-client = "^0.21"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3"
+pytest-asyncio = "^0.25"
+ruff = "^0.8"
+mypy = "^1.14"
+httpx = "^0.28"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
