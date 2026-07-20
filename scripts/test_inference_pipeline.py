@@ -5,11 +5,12 @@ from pathlib import Path
 
 import cv2
 
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(
-    0,
-    str(PROJECT_ROOT / "src"),
-)
+SRC_DIR = PROJECT_ROOT / "src"
+
+sys.path.insert(0, str(SRC_DIR))
+
 
 from bts_monitoring.database.session import (
     AsyncSessionFactory,
@@ -22,6 +23,9 @@ from bts_monitoring.repositories.camera_repository import (
 )
 from bts_monitoring.repositories.incident_repository import (
     IncidentRepository,
+)
+from bts_monitoring.repositories.mission_rule_repository import (
+    MissionRuleRepository,
 )
 from bts_monitoring.repositories.site_repository import (
     SiteRepository,
@@ -38,14 +42,8 @@ from bts_monitoring.services.inference.factory import (
 from bts_monitoring.services.inference.pipeline import (
     InferencePipeline,
 )
-from bts_monitoring.services.rule_engine.engine import (
-    RuleEngine,
-)
-from bts_monitoring.services.rule_engine.rules.fire import (
-    FireImmediateRule,
-)
-from bts_monitoring.services.rule_engine.rules.smoke import (
-    SmokePersistenceRule,
+from bts_monitoring.services.rule_engine.factory import (
+    MissionRuleEngineFactory,
 )
 
 
@@ -62,11 +60,24 @@ async def main() -> None:
     detector = get_fire_smoke_detector()
     detections = detector.predict(frame)
 
+    print(f"Detections found: {len(detections)}")
+
+    for detection in detections:
+        print(
+            "Detection:",
+            detection.class_name,
+            detection.confidence,
+            detection.bbox,
+        )
+
     async with AsyncSessionFactory() as session:
         event_repository = AIEventRepository(session)
         site_repository = SiteRepository(session)
         camera_repository = CameraRepository(session)
         incident_repository = IncidentRepository(session)
+        mission_rule_repository = MissionRuleRepository(
+            session
+        )
 
         event_service = AIEventService(
             session=session,
@@ -80,24 +91,17 @@ async def main() -> None:
             repository=incident_repository,
         )
 
-        rule_engine = RuleEngine(
+        rule_engine_factory = MissionRuleEngineFactory(
             event_repository=event_repository,
-            rules=[
-                FireImmediateRule(
-                    confidence_threshold=0.80,
-                ),
-                SmokePersistenceRule(
-                    confidence_threshold=0.65,
-                    required_events=1,
-                    window_seconds=10,
-                ),
-            ],
+            mission_rule_repository=(
+                mission_rule_repository
+            ),
         )
 
         pipeline = InferencePipeline(
             session=session,
             event_service=event_service,
-            rule_engine=rule_engine,
+            rule_engine_factory=rule_engine_factory,
             incident_service=incident_service,
         )
 
@@ -117,12 +121,19 @@ async def main() -> None:
                 event.confidence,
             )
 
+            if not incidents:
+                print(
+                    "No incident created for event:",
+                    event.event_id,
+                )
+
             for incident in incidents:
                 print(
                     "Incident:",
                     incident.incident_id,
                     incident.incident_type,
                     incident.severity,
+                    incident.occurrence_count,
                 )
 
 
