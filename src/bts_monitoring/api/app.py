@@ -24,14 +24,21 @@ from bts_monitoring.api.routes.mission_rules import (
     router as mission_rules_router,
 )
 
+from bts_monitoring.infrastructure.cache.redis_client import (
+    close_redis_client,
+)
+
+
 @asynccontextmanager
 async def lifespan(
     app: FastAPI,
 ) -> AsyncIterator[None]:
-    app.state.settings = get_settings()
+    settings = get_settings()
+    app.state.settings = settings
 
     yield
 
+    await close_redis_client()
     await engine.dispose()
 
 

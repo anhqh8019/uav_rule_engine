@@ -49,26 +49,53 @@ from bts_monitoring.services.rule_engine.factory import (
     MissionRuleEngineFactory,
 )
 
+from bts_monitoring.services.rule_engine.providers.database_provider import (
+    DatabaseMissionRuleProvider,
+)
+from bts_monitoring.services.rule_engine.providers.base import (
+    MissionRuleProvider,
+)
+
+from redis.asyncio import Redis
+
+from bts_monitoring.core.config import (
+    Settings,
+    get_settings,
+)
+from bts_monitoring.infrastructure.cache.mission_rule_cache import (
+    MissionRuleCache,
+)
+from bts_monitoring.infrastructure.cache.redis_client import (
+    get_redis_client,
+)
+from bts_monitoring.services.rule_engine.providers.cached_provider import (
+    CachedMissionRuleProvider,
+)
+from bts_monitoring.services.rule_engine.providers.database_provider import (
+    DatabaseMissionRuleProvider,
+)
+from bts_monitoring.services.rule_engine.providers.base import (
+    MissionRuleProvider,
+)
+
+from bts_monitoring.repositories.mission_rule_snapshot_repository import (
+    MissionRuleSnapshotRepository,
+)
+from bts_monitoring.services.rule_engine.snapshots.service import (
+    MissionRuleSnapshotService,
+)
+
+
 # =========================================================
 # Repository dependencies
 # =========================================================
+
+
 
 def get_mission_rule_repository(
     session: AsyncSession = Depends(get_db),
 ) -> MissionRuleRepository:
     return MissionRuleRepository(session)
-
-
-def get_mission_rule_service(
-    session: AsyncSession = Depends(get_db),
-    repository: MissionRuleRepository = Depends(
-        get_mission_rule_repository
-    ),
-) -> MissionRuleService:
-    return MissionRuleService(
-        session=session,
-        repository=repository,
-    )
 
 def get_site_repository(
     session: AsyncSession = Depends(get_db),
@@ -189,21 +216,62 @@ def get_rule_engine(
 # =========================================================
 # Inference pipeline
 # =========================================================
+def get_app_settings() -> Settings:
+    return get_settings()
 
+def get_redis() -> Redis:
+    return get_redis_client()
 
+def get_mission_rule_cache(
+    redis: Redis = Depends(get_redis),
+    settings: Settings = Depends(
+        get_app_settings
+    ),
+) -> MissionRuleCache:
+    return MissionRuleCache(
+        redis=redis,
+        key_prefix=(
+            settings.rule_cache_key_prefix
+        ),
+        ttl_seconds=(
+            settings.rule_cache_ttl_seconds
+        ),
+    )
 
+def get_database_mission_rule_provider(
+    repository: MissionRuleRepository = Depends(
+        get_mission_rule_repository
+    ),
+) -> DatabaseMissionRuleProvider:
+    return DatabaseMissionRuleProvider(
+        repository=repository,
+    )
+def get_mission_rule_provider(
+    cache: MissionRuleCache = Depends(
+        get_mission_rule_cache
+    ),
+    database_provider: (
+        DatabaseMissionRuleProvider
+    ) = Depends(
+        get_database_mission_rule_provider
+    ),
+) -> MissionRuleProvider:
+    return CachedMissionRuleProvider(
+        cache=cache,
+        fallback_provider=database_provider,
+    )
 
 def get_mission_rule_engine_factory(
     event_repository: AIEventRepository = Depends(
         get_ai_event_repository
     ),
-    mission_rule_repository: MissionRuleRepository = Depends(
-        get_mission_rule_repository
+    provider: MissionRuleProvider = Depends(
+        get_mission_rule_provider
     ),
 ) -> MissionRuleEngineFactory:
     return MissionRuleEngineFactory(
         event_repository=event_repository,
-        mission_rule_repository=mission_rule_repository,
+        provider=provider,
     )
 
 def get_inference_pipeline(
@@ -224,3 +292,41 @@ def get_inference_pipeline(
         rule_engine_factory=rule_engine_factory,
         incident_service=incident_service,
     )
+
+def get_mission_rule_snapshot_repository(
+    session: AsyncSession = Depends(get_db),
+) -> MissionRuleSnapshotRepository:
+    return MissionRuleSnapshotRepository(
+        session
+    )
+
+def get_mission_rule_snapshot_service(
+    repository: MissionRuleSnapshotRepository = Depends(
+        get_mission_rule_snapshot_repository
+    ),
+) -> MissionRuleSnapshotService:
+    return MissionRuleSnapshotService(
+        repository=repository,
+    )
+
+def get_mission_rule_service(
+    session: AsyncSession = Depends(get_db),
+    repository: MissionRuleRepository = Depends(
+        get_mission_rule_repository
+    ),
+    cache: MissionRuleCache = Depends(
+        get_mission_rule_cache
+    ),
+    snapshot_service: MissionRuleSnapshotService = Depends(
+        get_mission_rule_snapshot_service
+    ),
+) -> MissionRuleService:
+    return MissionRuleService(
+        session=session,
+        repository=repository,
+        cache=cache,
+        snapshot_service=snapshot_service,
+    )
+
+
+

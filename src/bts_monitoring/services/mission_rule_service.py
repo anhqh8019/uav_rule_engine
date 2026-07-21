@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bts_monitoring.core.enums import (
@@ -9,6 +10,9 @@ from bts_monitoring.core.enums import (
 )
 from bts_monitoring.database.models.mission_rule import (
     MissionRuleModel,
+)
+from bts_monitoring.infrastructure.cache.mission_rule_cache import (
+    MissionRuleCache,
 )
 from bts_monitoring.repositories.mission_rule_repository import (
     MissionRuleRepository,
@@ -20,16 +24,27 @@ from bts_monitoring.schemas.mission_rule import (
     MissionRuleUpsert,
     validate_rule_config,
 )
+from bts_monitoring.services.rule_engine.providers.models import (
+    MissionRuleDefinition,
+)
+from bts_monitoring.services.rule_engine.snapshots.service import (
+    MissionRuleSnapshotService,
+)
 
 
 class MissionRuleService:
     def __init__(
         self,
+        *,
         session: AsyncSession,
         repository: MissionRuleRepository,
+        cache: MissionRuleCache,
+        snapshot_service: MissionRuleSnapshotService,
     ) -> None:
         self.session = session
         self.repository = repository
+        self.cache = cache
+        self.snapshot_service = snapshot_service
 
     @staticmethod
     def normalize_mission_id(
@@ -39,7 +54,9 @@ class MissionRuleService:
 
         if not normalized:
             raise HTTPException(
-                status_code=422,
+                status_code=(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY
+                ),
                 detail="mission_id must not be empty",
             )
 
@@ -72,13 +89,15 @@ class MissionRuleService:
         now = datetime.now(UTC)
 
         if rule is not None:
-            if rule.status == MissionRuleStatus.ACTIVE:
+            if (
+                rule.status
+                == MissionRuleStatus.ACTIVE.value
+            ):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=(
                         "Active mission rules are locked. "
-                        "Deactivate the mission rules "
-                        "before editing."
+                        "Deactivate them before editing."
                     ),
                 )
 
@@ -100,12 +119,26 @@ class MissionRuleService:
                 version=1,
                 created_at=now,
                 updated_at=now,
+                activated_at=None,
             )
 
             self.session.add(rule)
 
-        await self.session.commit()
-        await self.session.refresh(rule)
+        try:
+            await self.session.commit()
+            await self.session.refresh(rule)
+        except IntegrityError as exc:
+            await self.session.rollback()
+
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Mission rule already exists or "
+                    "violates a database constraint"
+                ),
+            ) from exc
+
+        await self.cache.delete(mission_id)
 
         return rule
 
@@ -167,9 +200,7 @@ class MissionRuleService:
             mission_id=mission_id,
             status=combined_status,
             items=[
-                MissionRuleResponse.model_validate(
-                    rule
-                )
+                MissionRuleResponse.model_validate(rule)
                 for rule in rules
             ],
         )
@@ -180,12 +211,19 @@ class MissionRuleService:
         mission_id: str,
         event_type: RuleEventType,
     ) -> None:
+        mission_id = self.normalize_mission_id(
+            mission_id
+        )
+
         rule = await self.get_rule(
             mission_id=mission_id,
             event_type=event_type,
         )
 
-        if rule.status == MissionRuleStatus.ACTIVE:
+        if (
+            rule.status
+            == MissionRuleStatus.ACTIVE.value
+        ):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
@@ -195,6 +233,8 @@ class MissionRuleService:
 
         await self.repository.delete(rule)
         await self.session.commit()
+
+        await self.cache.delete(mission_id)
 
     async def validate_mission_rules(
         self,
@@ -219,20 +259,14 @@ class MissionRuleService:
             try:
                 validate_rule_config(
                     RuleEventType(rule.event_type),
-                    rule.config,
+                    dict(rule.config or {}),
                 )
             except Exception as exc:
                 errors.append(
                     f"{rule.event_type}: {exc}"
                 )
 
-        enabled_rules = [
-            rule
-            for rule in rules
-            if rule.enabled
-        ]
-
-        if not enabled_rules:
+        if not any(rule.enabled for rule in rules):
             errors.append(
                 "Mission requires at least one enabled rule"
             )
@@ -245,7 +279,13 @@ class MissionRuleService:
     async def activate(
         self,
         mission_id: str,
+        *,
+        created_by: str | None = None,
     ) -> MissionRuleListResponse:
+        mission_id = self.normalize_mission_id(
+            mission_id
+        )
+
         validation = (
             await self.validate_mission_rules(
                 mission_id
@@ -254,7 +294,9 @@ class MissionRuleService:
 
         if not validation.valid:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY
+                ),
                 detail={
                     "message": (
                         "Mission rules are invalid"
@@ -263,13 +305,18 @@ class MissionRuleService:
                 },
             )
 
-        mission_id = self.normalize_mission_id(
-            mission_id
-        )
-
         rules = await self.repository.list_by_mission(
             mission_id
         )
+
+        if not rules:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    f"Mission '{mission_id}' "
+                    "does not have rules"
+                ),
+            )
 
         now = datetime.now(UTC)
 
@@ -280,10 +327,47 @@ class MissionRuleService:
             rule.activated_at = now
             rule.updated_at = now
 
-        await self.session.commit()
+        try:
+            snapshot = (
+                await self.snapshot_service
+                .create_snapshot(
+                    mission_id=mission_id,
+                    rules=rules,
+                    created_by=created_by,
+                )
+            )
+
+            await self.session.commit()
+
+        except Exception:
+            await self.session.rollback()
+            raise
 
         for rule in rules:
             await self.session.refresh(rule)
+
+        await self.session.refresh(snapshot)
+
+        definitions = [
+            MissionRuleDefinition(
+                mission_id=mission_id,
+                event_type=item["event_type"],
+                enabled=item["enabled"],
+                config=dict(item["config"]),
+                version=int(
+                    item.get("rule_version", 1)
+                ),
+            )
+            for item in snapshot.rules
+        ]
+
+        await self.cache.set_snapshot(
+            mission_id=mission_id,
+            snapshot_id=str(snapshot.snapshot_id),
+            version=snapshot.version,
+            checksum=snapshot.checksum,
+            rules=definitions,
+        )
 
         return await self.list_rules(mission_id)
 
@@ -320,5 +404,7 @@ class MissionRuleService:
 
         for rule in rules:
             await self.session.refresh(rule)
+
+        await self.cache.delete(mission_id)
 
         return await self.list_rules(mission_id)

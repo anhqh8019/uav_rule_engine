@@ -26,6 +26,12 @@ from bts_monitoring.database.models.mission_rule import (
     MissionRuleModel,
 )
 
+from bts_monitoring.database.models.mission_rule_snapshot import (
+    MissionRuleSnapshotModel,
+)
+
+from bts_monitoring.database.base import Base
+
 config = context.config
 
 if config.config_file_name is not None:

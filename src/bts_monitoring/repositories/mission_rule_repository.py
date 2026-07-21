@@ -75,3 +75,25 @@ class MissionRuleRepository:
         rule: MissionRuleModel,
     ) -> None:
         await self.session.delete(rule)
+
+async def list_active_by_mission(
+    self,
+    mission_id: str,
+) -> list[MissionRuleModel]:
+    statement = (
+        select(MissionRuleModel)
+        .where(
+            MissionRuleModel.mission_id
+            == mission_id,
+            MissionRuleModel.status
+            == "active",
+            MissionRuleModel.enabled.is_(True),
+        )
+        .order_by(
+            MissionRuleModel.event_type.asc()
+        )
+    )
+
+    result = await self.session.execute(statement)
+
+    return list(result.scalars().all())

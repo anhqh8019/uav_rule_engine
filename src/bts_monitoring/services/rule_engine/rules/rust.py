@@ -16,6 +16,18 @@ class RustSeverityRule(Rule):
         medium_area_ratio: float = 0.08,
         high_area_ratio: float = 0.20,
     ) -> None:
+        if not (
+            0
+            <= minimum_area_ratio
+            < medium_area_ratio
+            < high_area_ratio
+            <= 1
+        ):
+            raise ValueError(
+                "Rust thresholds must satisfy: "
+                "0 <= minimum < medium < high <= 1"
+            )
+
         self.minimum_area_ratio = (
             minimum_area_ratio
         )

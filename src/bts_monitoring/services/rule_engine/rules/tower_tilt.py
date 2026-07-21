@@ -15,10 +15,25 @@ class TowerTiltRule(Rule):
         warning_angle: float = 1.0,
         high_angle: float = 2.0,
         critical_angle: float = 3.0,
+        require_valid_calibration: bool = True,
     ) -> None:
+        if not (
+            0
+            <= warning_angle
+            < high_angle
+            < critical_angle
+        ):
+            raise ValueError(
+                "Tilt thresholds must satisfy: "
+                "warning < high < critical"
+            )
+
         self.warning_angle = warning_angle
         self.high_angle = high_angle
         self.critical_angle = critical_angle
+        self.require_valid_calibration = (
+            require_valid_calibration
+        )
 
     async def evaluate(
         self,
@@ -35,7 +50,10 @@ class TowerTiltRule(Rule):
             )
         )
 
-        if not calibration_valid:
+        if (
+                self.require_valid_calibration
+                and not calibration_valid
+        ):
             return RuleResult(triggered=False)
 
         angle = float(

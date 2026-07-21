@@ -5,6 +5,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 ENV_FILE = PROJECT_ROOT / ".env"
 
@@ -56,6 +57,23 @@ class Settings(BaseSettings):
         default=0.45,
         ge=0,
         le=1,
+    )
+
+    redis_url: str
+
+    rule_cache_key_prefix: str = "bts:mission-rules"
+
+    rule_cache_ttl_seconds: int = Field(
+        default=3600,
+        ge=60,
+        le=86400,
+    )
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
     )
 
 
