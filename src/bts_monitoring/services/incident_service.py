@@ -89,6 +89,25 @@ class IncidentService:
             if commit:
                 await self.session.commit()
 
+            existing.source_event_id = event.event_id
+            existing.message = result.message
+            existing.last_seen_at = event.captured_at
+            existing.occurrence_count += 1
+
+            existing.mission_id = event.mission_id
+
+            existing.rule_snapshot_id = (
+                event.rule_snapshot_id
+            )
+
+            existing.rule_snapshot_version = (
+                event.rule_snapshot_version
+            )
+
+            existing.rule_snapshot_checksum = (
+                event.rule_snapshot_checksum
+            )
+
             return existing
 
         payload = IncidentCreate(
@@ -114,6 +133,37 @@ class IncidentService:
 
         if commit:
             await self.session.commit()
+
+        incident = IncidentModel(
+            mission_id=event.mission_id,
+            site_id=event.site_id,
+            camera_id=event.camera_id,
+            source_event_id=event.event_id,
+            incident_type=result.incident_type,
+            severity=result.severity,
+            status="open",
+            title=result.title,
+            message=result.message,
+            deduplication_key=(
+                result.deduplication_key
+            ),
+            first_seen_at=event.captured_at,
+            last_seen_at=event.captured_at,
+            occurrence_count=1,
+            acknowledged_at=None,
+            resolved_at=None,
+            closed_at=None,
+            assigned_to=None,
+            rule_snapshot_id=(
+                event.rule_snapshot_id
+            ),
+            rule_snapshot_version=(
+                event.rule_snapshot_version
+            ),
+            rule_snapshot_checksum=(
+                event.rule_snapshot_checksum
+            ),
+        )
 
         return incident
 

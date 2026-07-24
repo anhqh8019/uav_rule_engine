@@ -58,6 +58,9 @@ from bts_monitoring.services.rule_engine.providers.database_provider import (
     DatabaseMissionRuleProvider,
 )
 
+from bts_monitoring.services.rule_engine.runtime import (
+    get_local_rule_engine_cache,
+)
 
 async def main() -> None:
     try:
@@ -124,6 +127,7 @@ async def main() -> None:
             rule_engine_factory = MissionRuleEngineFactory(
                 event_repository=event_repository,
                 provider=rule_provider,
+                local_cache=get_local_rule_engine_cache(),
             )
 
             pipeline = InferencePipeline(
@@ -133,7 +137,9 @@ async def main() -> None:
                 incident_service=incident_service,
             )
 
-            results = await pipeline.process_detections(
+            print("\n========== FIRST PIPELINE RUN ==========")
+
+            first_results = await pipeline.process_detections(
                 mission_id="MISSION-001",
                 site_id="BTS-HN-001",
                 camera_id="CAM-HN-001",
@@ -141,30 +147,45 @@ async def main() -> None:
                 captured_at=datetime.now(UTC),
             )
 
-            for event, incidents in results:
-                print(
-                    "AI event:",
-                    event.event_id,
-                    event.event_type,
-                    event.confidence,
-                )
+            print("\n========== SECOND PIPELINE RUN ==========")
 
-                if not incidents:
-                    print(
-                        "No incident created for event:",
-                        event.event_id,
-                    )
+            second_results = await pipeline.process_detections(
+                mission_id="MISSION-001",
+                site_id="BTS-HN-001",
+                camera_id="CAM-HN-001",
+                detections=detections,
+                captured_at=datetime.now(UTC),
+            )
+            print("=========================first_results===========================")
+            print(first_results)
+            print("=========================second_results===========================")
+            print(second_results)
 
-                for incident in incidents:
-                    print(
-                        "Incident:",
-                        incident.incident_id,
-                        incident.incident_type,
-                        incident.severity,
-                        incident.occurrence_count,
-                    )
+            # for event, incidents in results:
+            #     print(
+            #         "AI event:",
+            #         event.event_id,
+            #         event.event_type,
+            #         event.confidence,
+            #     )
+            #
+            #     if not incidents:
+            #         print(
+            #             "No incident created for event:",
+            #             event.event_id,
+            #         )
+            #
+            #     for incident in incidents:
+            #         print(
+            #             "Incident:",
+            #             incident.incident_id,
+            #             incident.incident_type,
+            #             incident.severity,
+            #             incident.occurrence_count,
+            #         )
 
     finally:
+        await get_local_rule_engine_cache().clear()
         await close_redis_client()
 
 

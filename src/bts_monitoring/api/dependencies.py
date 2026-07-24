@@ -56,6 +56,13 @@ from bts_monitoring.services.rule_engine.providers.base import (
     MissionRuleProvider,
 )
 
+from bts_monitoring.infrastructure.messaging.rule_event_publisher import (
+    RuleEventPublisher,
+)
+from bts_monitoring.services.rule_engine.runtime import (
+    get_local_rule_engine_cache,
+)
+
 from redis.asyncio import Redis
 
 from bts_monitoring.core.config import (
@@ -272,6 +279,9 @@ def get_mission_rule_engine_factory(
     return MissionRuleEngineFactory(
         event_repository=event_repository,
         provider=provider,
+        local_cache=(
+            get_local_rule_engine_cache()
+        ),
     )
 
 def get_inference_pipeline(
@@ -309,6 +319,18 @@ def get_mission_rule_snapshot_service(
         repository=repository,
     )
 
+def get_rule_event_publisher(
+    redis: Redis = Depends(get_redis),
+    settings: Settings = Depends(
+        get_app_settings
+    ),
+) -> RuleEventPublisher:
+    return RuleEventPublisher(
+        redis=redis,
+        channel=settings.rule_update_channel,
+    )
+
+
 def get_mission_rule_service(
     session: AsyncSession = Depends(get_db),
     repository: MissionRuleRepository = Depends(
@@ -320,13 +342,18 @@ def get_mission_rule_service(
     snapshot_service: MissionRuleSnapshotService = Depends(
         get_mission_rule_snapshot_service
     ),
+    event_publisher: RuleEventPublisher = Depends(
+        get_rule_event_publisher
+    ),
 ) -> MissionRuleService:
     return MissionRuleService(
         session=session,
         repository=repository,
         cache=cache,
         snapshot_service=snapshot_service,
+        event_publisher=event_publisher,
     )
+
 
 
 

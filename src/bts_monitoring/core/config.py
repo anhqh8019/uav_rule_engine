@@ -13,6 +13,18 @@ ENV_FILE = PROJECT_ROOT / ".env"
 class Settings(BaseSettings):
     app_name: str = "bts-monitoring"
     app_env: str = "development"
+
+    rule_update_channel: str = "bts:rule-updates"
+
+    fire_smoke_model_name: str = "fire-smoke-detector"
+
+
+    rule_engine_local_cache_ttl_seconds: int = Field(
+        default=300,
+        ge=10,
+        le=3600,
+    )
+
     app_debug: bool = False
 
     database_url: str
@@ -82,4 +94,6 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    fire_smoke_model_name: str = "fire-smoke-detector"
+    fire_smoke_model_version: str = "1.0.0"
     return Settings()

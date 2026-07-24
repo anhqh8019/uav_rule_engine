@@ -6,21 +6,26 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class BoundingBoxSchema(BaseModel):
-    x1: float
-    y1: float
-    x2: float
-    y2: float
+    x1: float = Field(ge=0)
+    y1: float = Field(ge=0)
+    x2: float = Field(ge=0)
+    y2: float = Field(ge=0)
 
 
 class AIEventCreate(BaseModel):
+    mission_id: str | None = Field(
+        default=None,
+        max_length=100,
+    )
+
     site_id: str = Field(
         min_length=1,
-        max_length=64,
+        max_length=100,
     )
 
     camera_id: str = Field(
         min_length=1,
-        max_length=64,
+        max_length=100,
     )
 
     event_type: str = Field(
@@ -33,29 +38,28 @@ class AIEventCreate(BaseModel):
         le=1,
     )
 
-    model_name: str = Field(
-        min_length=1,
-        max_length=100,
-    )
-
-    model_version: str = Field(
-        min_length=1,
-        max_length=50,
-    )
+    model_name: str
+    model_version: str
 
     captured_at: datetime
     received_at: datetime
 
     bbox: BoundingBoxSchema | None = None
-    polygon: list[tuple[float, float]] | None = None
-
+    polygon: list[Any] | None = None
     attributes: dict[str, Any] = Field(
         default_factory=dict,
     )
+    evidence_uri: str | None = None
 
-    evidence_uri: str | None = Field(
+    rule_snapshot_id: UUID | None = None
+    rule_snapshot_version: int | None = Field(
         default=None,
-        max_length=1000,
+        ge=1,
+    )
+    rule_snapshot_checksum: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
     )
 
 

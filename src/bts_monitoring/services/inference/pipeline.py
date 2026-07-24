@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bts_monitoring.core.config import get_settings
 from bts_monitoring.database.models.ai_event import (
     AIEventModel,
 )
@@ -29,7 +30,9 @@ from bts_monitoring.services.rule_engine.factory import (
     MissionRuleEngineFactory,
 )
 
+from datetime import UTC, datetime
 
+from bts_monitoring.schemas.ai_event import AIEventCreate
 
 class InferencePipeline:
     def __init__(
@@ -58,77 +61,98 @@ class InferencePipeline:
         AIEventModel,
         list[IncidentModel],
     ]:
+        normalized_mission_id = (
+            mission_id.strip().upper()
+        )
+
+        rule_context = (
+            await self.rule_engine_factory.create(
+                normalized_mission_id
+            )
+        )
 
         bbox = None
 
         if detection.bbox is not None:
             x1, y1, x2, y2 = detection.bbox
 
-            bbox = BoundingBoxSchema(
-                x1=x1,
-                y1=y1,
-                x2=x2,
-                y2=y2,
-            )
+            bbox = {
+                "x1": float(x1),
+                "y1": float(y1),
+                "x2": float(x2),
+                "y2": float(y2),
+            }
 
-        payload = AIEventCreate(
+        attributes = dict(
+            detection.attributes or {}
+        )
+
+        settings = get_settings()
+
+        attributes = {
+            "inference_ms": getattr(
+                detection,
+                "inference_ms",
+                None,
+            ),
+            "model_name": settings.fire_smoke_model_name,
+            "model_version": settings.fire_smoke_model_version,
+        }
+
+        attributes = {
+            key: value
+            for key, value in attributes.items()
+            if value is not None
+        }
+
+        event_payload = AIEventCreate(
+            mission_id=normalized_mission_id,
             site_id=site_id,
             camera_id=camera_id,
             event_type=detection.class_name.upper(),
-            confidence=detection.confidence,
-            model_name=str(
-                detection.attributes.get(
-                    "model_name",
-                    "unknown-model",
-                )
-            ),
-            model_version=str(
-                detection.attributes.get(
-                    "model_version",
-                    "unknown-version",
-                )
-            ),
+            confidence=float(detection.confidence),
+            model_name=settings.fire_smoke_model_name,
+            model_version=settings.fire_smoke_model_version,
             captured_at=captured_at,
             received_at=datetime.now(UTC),
             bbox=bbox,
-            polygon=detection.polygon,
-            attributes=detection.attributes,
+            polygon=None,
+            attributes=attributes,
             evidence_uri=evidence_uri,
+            rule_snapshot_id=rule_context.snapshot_id,
+            rule_snapshot_version=rule_context.snapshot_version,
+            rule_snapshot_checksum=rule_context.checksum,
         )
 
-        try:
-            event = await self.event_service.create_event(
-                payload,
-                commit=False,
+        event = await self.event_service.create_event(
+            event_payload
+        )
+
+        rule_results = (
+            await rule_context.engine.evaluate(
+                event
             )
+        )
 
-            rule_engine = await self.rule_engine_factory.create(
-                mission_id
-            )
+        incidents: list[IncidentModel] = []
 
-            results = await rule_engine.evaluate(event)
+        for result in rule_results:
+            if not result.triggered:
+                continue
 
-            incidents: list[IncidentModel] = []
-
-            for result in results:
-                incident = (
-                    await self.incident_service
-                    .handle_rule_result(
-                        event=event,
-                        result=result,
-                        commit=False,
-                    )
+            incident = (
+                await self.incident_service
+                .create_or_update_from_rule(
+                    event=event,
+                    result=result,
                 )
+            )
 
-                incidents.append(incident)
+            incidents.append(incident)
 
-            await self.session.commit()
+        await self.session.commit()
 
-            return event, incidents
-
-        except Exception:
-            await self.session.rollback()
-            raise
+        return event, incidents
 
     async def process_detections(
             self,

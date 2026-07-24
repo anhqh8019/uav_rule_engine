@@ -1,6 +1,11 @@
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from dataclasses import dataclass, field
+from typing import Any
+
+
+
 
 @dataclass(frozen=True, slots=True)
 class MissionRuleDefinition:
@@ -37,3 +42,14 @@ class MissionRuleDefinition:
                 value.get("version", 1)
             ),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class MissionRuleSet:
+    mission_id: str
+    snapshot_id: str | None
+    snapshot_version: int | None
+    checksum: str | None
+    rules: list[MissionRuleDefinition] = field(
+        default_factory=list,
+    )

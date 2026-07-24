@@ -7,9 +7,8 @@ from bts_monitoring.services.rule_engine.providers.base import (
     MissionRuleProvider,
 )
 from bts_monitoring.services.rule_engine.providers.models import (
-    MissionRuleDefinition,
+    MissionRuleSet,
 )
-
 
 
 logger = logging.getLogger(__name__)
@@ -27,49 +26,61 @@ class CachedMissionRuleProvider(
         self.cache = cache
         self.fallback_provider = fallback_provider
 
-    async def get_active_rules(
+    async def get_active_rule_set(
         self,
         mission_id: str,
-    ) -> list[MissionRuleDefinition]:
-        normalized_mission_id = (
-            mission_id.strip().upper()
+    ) -> MissionRuleSet:
+        normalized = mission_id.strip().upper()
+
+        cached_rule_set = (
+            await self.cache.get_rule_set(
+                normalized
+            )
         )
 
-        cached_rules = await self.cache.get(
-            normalized_mission_id
-        )
-
-        if cached_rules is not None:
-            logger.debug(
-                "Mission-rule cache hit",
+        if cached_rule_set is not None:
+            logger.info(
+                "Mission rule Redis cache hit",
                 extra={
-                    "mission_id": (
-                        normalized_mission_id
-                    )
+                    "mission_id": normalized,
+                    "snapshot_version": (
+                        cached_rule_set
+                        .snapshot_version
+                    ),
                 },
             )
-            print("========== CACHE HIT ==========")
-            return cached_rules
-        print("========== CACHE MISS ==========")
-        logger.debug(
-            "Mission-rule cache miss",
+
+            print(
+                "REDIS CACHE HIT:",
+                normalized,
+                "version=",
+                cached_rule_set.snapshot_version,
+            )
+
+            return cached_rule_set
+
+        logger.info(
+            "Mission rule Redis cache miss",
             extra={
-                "mission_id": normalized_mission_id
+                "mission_id": normalized,
             },
         )
 
-        rules = (
+        print(
+            "REDIS CACHE MISS:",
+            normalized,
+        )
+
+        rule_set = (
             await self.fallback_provider
-            .get_active_rules(
-                normalized_mission_id
+            .get_active_rule_set(
+                normalized
             )
         )
 
-        # Cache cả danh sách rỗng để tránh DB bị query
-        # liên tục đối với mission chưa có active rule.
         await self.cache.set(
-            mission_id=normalized_mission_id,
-            rules=rules,
+            mission_id=normalized,
+            rules=rule_set.rules,
         )
 
-        return rules
+        return rule_set

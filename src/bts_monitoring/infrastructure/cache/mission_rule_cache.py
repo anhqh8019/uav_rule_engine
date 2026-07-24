@@ -7,6 +7,7 @@ from redis.exceptions import RedisError
 
 from bts_monitoring.services.rule_engine.providers.models import (
     MissionRuleDefinition,
+    MissionRuleSet,
 )
 
 
@@ -25,24 +26,33 @@ class MissionRuleCache:
         self.key_prefix = key_prefix.rstrip(":")
         self.ttl_seconds = ttl_seconds
 
+    @staticmethod
+    def normalize_mission_id(
+        mission_id: str,
+    ) -> str:
+        return mission_id.strip().upper()
+
     def build_key(
         self,
         mission_id: str,
     ) -> str:
-        normalized_mission_id = (
-            mission_id.strip().upper()
+        normalized = self.normalize_mission_id(
+            mission_id
         )
 
-        return (
-            f"{self.key_prefix}:"
-            f"{normalized_mission_id}"
-        )
+        return f"{self.key_prefix}:{normalized}"
 
-    async def get(
+    async def get_rule_set(
         self,
         mission_id: str,
-    ) -> list[MissionRuleDefinition] | None:
-        payload = await self.get_payload(mission_id)
+    ) -> MissionRuleSet | None:
+        normalized = self.normalize_mission_id(
+            mission_id
+        )
+
+        payload = await self.get_payload(
+            normalized
+        )
 
         if payload is None:
             return None
@@ -50,11 +60,18 @@ class MissionRuleCache:
         raw_rules = payload.get("rules")
 
         if not isinstance(raw_rules, list):
-            await self.delete(mission_id)
+            logger.warning(
+                "Rule cache payload has no valid rules",
+                extra={
+                    "mission_id": normalized,
+                },
+            )
+
+            await self.delete(normalized)
             return None
 
         try:
-            return [
+            rules = [
                 MissionRuleDefinition.from_dict(item)
                 for item in raw_rules
             ]
@@ -64,16 +81,53 @@ class MissionRuleCache:
             KeyError,
         ):
             logger.exception(
-                "Invalid mission-rule definitions "
-                "inside cache payload",
+                "Cannot deserialize cached rules",
                 extra={
-                    "mission_id": mission_id,
+                    "mission_id": normalized,
                 },
             )
 
-            await self.delete(mission_id)
-
+            await self.delete(normalized)
             return None
+
+        snapshot_id = payload.get("snapshot_id")
+        snapshot_version = payload.get(
+            "snapshot_version"
+        )
+        checksum = payload.get("checksum")
+
+        return MissionRuleSet(
+            mission_id=normalized,
+            snapshot_id=(
+                str(snapshot_id)
+                if snapshot_id is not None
+                else None
+            ),
+            snapshot_version=(
+                int(snapshot_version)
+                if snapshot_version is not None
+                else None
+            ),
+            checksum=(
+                str(checksum)
+                if checksum is not None
+                else None
+            ),
+            rules=rules,
+        )
+
+    async def get(
+        self,
+        mission_id: str,
+    ) -> list[MissionRuleDefinition] | None:
+        rule_set = await self.get_rule_set(
+            mission_id
+        )
+
+        if rule_set is None:
+            return None
+
+        return rule_set.rules
 
     async def get_payload(
         self,
@@ -85,7 +139,7 @@ class MissionRuleCache:
             raw_value = await self.redis.get(key)
         except RedisError:
             logger.exception(
-                "Could not read mission-rule cache",
+                "Cannot read mission rule Redis cache",
                 extra={
                     "mission_id": mission_id,
                     "cache_key": key,
@@ -100,7 +154,7 @@ class MissionRuleCache:
             payload = json.loads(raw_value)
         except json.JSONDecodeError:
             logger.exception(
-                "Mission-rule cache contains invalid JSON",
+                "Mission rule Redis payload is invalid JSON",
                 extra={
                     "mission_id": mission_id,
                     "cache_key": key,
@@ -108,7 +162,6 @@ class MissionRuleCache:
             )
 
             await self.delete(mission_id)
-
             return None
 
         if not isinstance(payload, dict):
@@ -123,11 +176,13 @@ class MissionRuleCache:
         mission_id: str,
         rules: list[MissionRuleDefinition],
     ) -> None:
+        normalized = self.normalize_mission_id(
+            mission_id
+        )
+
         payload = {
             "schema_version": 1,
-            "mission_id": (
-                mission_id.strip().upper()
-            ),
+            "mission_id": normalized,
             "rules": [
                 rule.to_dict()
                 for rule in rules
@@ -135,7 +190,7 @@ class MissionRuleCache:
         }
 
         await self._write_payload(
-            mission_id=mission_id,
+            mission_id=normalized,
             payload=payload,
         )
 
@@ -148,11 +203,13 @@ class MissionRuleCache:
         checksum: str,
         rules: list[MissionRuleDefinition],
     ) -> None:
+        normalized = self.normalize_mission_id(
+            mission_id
+        )
+
         payload = {
             "schema_version": 2,
-            "mission_id": (
-                mission_id.strip().upper()
-            ),
+            "mission_id": normalized,
             "snapshot_id": snapshot_id,
             "snapshot_version": version,
             "checksum": checksum,
@@ -163,7 +220,7 @@ class MissionRuleCache:
         }
 
         await self._write_payload(
-            mission_id=mission_id,
+            mission_id=normalized,
             payload=payload,
         )
 
@@ -189,7 +246,7 @@ class MissionRuleCache:
             )
         except RedisError:
             logger.exception(
-                "Could not write mission-rule cache",
+                "Cannot write mission rule Redis cache",
                 extra={
                     "mission_id": mission_id,
                     "cache_key": key,
@@ -206,7 +263,7 @@ class MissionRuleCache:
             await self.redis.delete(key)
         except RedisError:
             logger.exception(
-                "Could not invalidate mission-rule cache",
+                "Cannot invalidate mission rule cache",
                 extra={
                     "mission_id": mission_id,
                     "cache_key": key,

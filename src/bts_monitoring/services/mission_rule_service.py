@@ -31,6 +31,13 @@ from bts_monitoring.services.rule_engine.snapshots.service import (
     MissionRuleSnapshotService,
 )
 
+from bts_monitoring.infrastructure.messaging.rule_event_publisher import (
+    RuleEventPublisher,
+)
+from bts_monitoring.services.rule_engine.events import (
+    RuleSnapshotActivatedEvent,
+)
+
 
 class MissionRuleService:
     def __init__(
@@ -40,11 +47,13 @@ class MissionRuleService:
         repository: MissionRuleRepository,
         cache: MissionRuleCache,
         snapshot_service: MissionRuleSnapshotService,
+        event_publisher: RuleEventPublisher,
     ) -> None:
         self.session = session
         self.repository = repository
         self.cache = cache
         self.snapshot_service = snapshot_service
+        self.event_publisher = event_publisher
 
     @staticmethod
     def normalize_mission_id(
@@ -367,6 +376,17 @@ class MissionRuleService:
             version=snapshot.version,
             checksum=snapshot.checksum,
             rules=definitions,
+        )
+
+        event = RuleSnapshotActivatedEvent.create(
+            mission_id=mission_id,
+            snapshot_id=snapshot.snapshot_id,
+            snapshot_version=snapshot.version,
+            checksum=snapshot.checksum,
+        )
+
+        await self.event_publisher.publish_snapshot_activated(
+            event
         )
 
         return await self.list_rules(mission_id)

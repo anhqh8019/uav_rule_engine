@@ -20,6 +20,7 @@ from bts_monitoring.schemas.ai_event import (
 )
 
 
+
 class AIEventService:
     def __init__(
         self,
@@ -42,6 +43,7 @@ class AIEventService:
         site = await self.site_repository.get_by_id(
             payload.site_id
         )
+
 
         if site is None:
             raise HTTPException(
@@ -78,6 +80,31 @@ class AIEventService:
 
         if commit:
             await self.session.commit()
+
+        event = AIEventModel(
+            mission_id=payload.mission_id,
+            site_id=payload.site_id,
+            camera_id=payload.camera_id,
+            event_type=payload.event_type,
+            confidence=payload.confidence,
+            model_name=payload.model_name,
+            model_version=payload.model_version,
+            captured_at=payload.captured_at,
+            received_at=payload.received_at,
+            bbox=payload.bbox,
+            polygon=payload.polygon,
+            attributes=payload.attributes,
+            evidence_uri=payload.evidence_uri,
+            rule_snapshot_id=(
+                payload.rule_snapshot_id
+            ),
+            rule_snapshot_version=(
+                payload.rule_snapshot_version
+            ),
+            rule_snapshot_checksum=(
+                payload.rule_snapshot_checksum
+            ),
+        )
 
         return event
 

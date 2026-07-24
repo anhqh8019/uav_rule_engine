@@ -3,14 +3,12 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     DateTime,
-    ForeignKey,
     Index,
     Integer,
     String,
-    Text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from bts_monitoring.database.base import Base
 
@@ -24,30 +22,27 @@ class IncidentModel(Base):
         default=uuid4,
     )
 
+    mission_id: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        index=True,
+    )
+
     site_id: Mapped[str] = mapped_column(
-        ForeignKey(
-            "sites.site_id",
-            ondelete="RESTRICT",
-        ),
+        String(100),
         nullable=False,
         index=True,
     )
 
-    camera_id: Mapped[str | None] = mapped_column(
-        ForeignKey(
-            "cameras.camera_id",
-            ondelete="SET NULL",
-        ),
-        nullable=True,
+    camera_id: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
         index=True,
     )
 
-    source_event_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey(
-            "ai_events.event_id",
-            ondelete="SET NULL",
-        ),
-        nullable=True,
+    source_event_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        nullable=False,
         index=True,
     )
 
@@ -58,16 +53,14 @@ class IncidentModel(Base):
     )
 
     severity: Mapped[str] = mapped_column(
-        String(20),
+        String(30),
         nullable=False,
         index=True,
     )
 
     status: Mapped[str] = mapped_column(
-        String(20),
+        String(30),
         nullable=False,
-        default="open",
-        server_default="open",
         index=True,
     )
 
@@ -76,9 +69,9 @@ class IncidentModel(Base):
         nullable=False,
     )
 
-    message: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
+    message: Mapped[str] = mapped_column(
+        String(2000),
+        nullable=False,
     )
 
     deduplication_key: Mapped[str] = mapped_column(
@@ -101,7 +94,6 @@ class IncidentModel(Base):
         Integer,
         nullable=False,
         default=1,
-        server_default="1",
     )
 
     acknowledged_at: Mapped[datetime | None] = mapped_column(
@@ -124,15 +116,26 @@ class IncidentModel(Base):
         nullable=True,
     )
 
-    source_event = relationship(
-        "AIEventModel",
-        back_populates="incidents",
+    rule_snapshot_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        nullable=True,
+        index=True,
+    )
+
+    rule_snapshot_version: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    rule_snapshot_checksum: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
     )
 
     __table_args__ = (
         Index(
-            "ix_incidents_dedup_status",
-            "deduplication_key",
-            "status",
+            "ix_incidents_mission_snapshot",
+            "mission_id",
+            "rule_snapshot_version",
         ),
     )

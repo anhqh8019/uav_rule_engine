@@ -6,6 +6,7 @@ from bts_monitoring.services.rule_engine.providers.base import (
 )
 from bts_monitoring.services.rule_engine.providers.models import (
     MissionRuleDefinition,
+    MissionRuleSet,
 )
 
 
@@ -14,14 +15,15 @@ class DatabaseMissionRuleProvider(
 ):
     def __init__(
         self,
+        *,
         repository: MissionRuleRepository,
     ) -> None:
         self.repository = repository
 
-    async def get_active_rules(
+    async def get_active_rule_set(
         self,
         mission_id: str,
-    ) -> list[MissionRuleDefinition]:
+    ) -> MissionRuleSet:
         normalized_mission_id = (
             mission_id.strip().upper()
         )
@@ -33,7 +35,7 @@ class DatabaseMissionRuleProvider(
             )
         )
 
-        return [
+        rules = [
             MissionRuleDefinition(
                 mission_id=model.mission_id,
                 event_type=model.event_type,
@@ -43,3 +45,11 @@ class DatabaseMissionRuleProvider(
             )
             for model in models
         ]
+
+        return MissionRuleSet(
+            mission_id=normalized_mission_id,
+            snapshot_id=None,
+            snapshot_version=None,
+            checksum=None,
+            rules=rules,
+        )
