@@ -3,10 +3,12 @@ name = "bts-monitoring"
 version = "0.1.0"
 description = "AI monitoring platform for BTS sites"
 authors = ["Your Team"]
-packages = [{ include = "src" }]
+packages = [
+    { include = "bts_monitoring", from = "src" }
+]
 
 [tool.poetry.dependencies]
-python = "^3.13"
+python = ">=3.12,<3.14"
 fastapi = "^0.115"
 uvicorn = { extras = ["standard"], version = "^0.34" }
 pydantic = "^2.10"
