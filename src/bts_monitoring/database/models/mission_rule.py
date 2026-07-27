@@ -92,4 +92,10 @@ class MissionRuleModel(Base):
             "mission_id",
             "status",
         ),
+        Index(
+            "ix_mission_rules_active_lookup",
+            "mission_id",
+            "status",
+            "enabled",
+        ),
     )

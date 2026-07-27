@@ -5,13 +5,14 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     DateTime,
     Float,
+    ForeignKey,
     Index,
     Integer,
     JSON,
     String,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from bts_monitoring.database.base import Base
 
@@ -32,13 +33,13 @@ class AIEventModel(Base):
     )
 
     site_id: Mapped[str] = mapped_column(
-        String(100),
+        ForeignKey("sites.site_id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
 
     camera_id: Mapped[str] = mapped_column(
-        String(100),
+        ForeignKey("cameras.camera_id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -73,6 +74,7 @@ class AIEventModel(Base):
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
+        index=True,
     )
 
     bbox: Mapped[dict[str, Any] | None] = mapped_column(
@@ -97,7 +99,10 @@ class AIEventModel(Base):
     )
 
     rule_snapshot_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True),
+        ForeignKey(
+            "mission_rule_snapshots.snapshot_id",
+            ondelete="RESTRICT",
+        ),
         nullable=True,
         index=True,
     )
@@ -112,10 +117,21 @@ class AIEventModel(Base):
         nullable=True,
     )
 
+    incidents = relationship(
+        "IncidentModel",
+        back_populates="source_event",
+        passive_deletes=True,
+    )
+
     __table_args__ = (
         Index(
             "ix_ai_events_mission_snapshot",
             "mission_id",
             "rule_snapshot_version",
+        ),
+        Index(
+            "ix_ai_events_camera_captured",
+            "camera_id",
+            "captured_at",
         ),
     )

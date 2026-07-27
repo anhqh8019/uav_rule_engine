@@ -3,9 +3,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bts_monitoring.database.models.incident import (
-    IncidentModel,
-)
+from bts_monitoring.database.models.incident import IncidentModel
 from bts_monitoring.schemas.incident import IncidentCreate
 
 
@@ -27,14 +25,10 @@ class IncidentRepository:
         payload: IncidentCreate,
     ) -> IncidentModel:
         incident = IncidentModel(
-            **payload.model_dump(
-                mode="json",
-            ),
-            status="open",
+            **payload.model_dump(mode="python")
         )
 
         self.session.add(incident)
-
         await self.session.flush()
         await self.session.refresh(incident)
 
@@ -102,20 +96,19 @@ class IncidentRepository:
 
         if incident_status:
             filters.append(
-                IncidentModel.status == incident_status
+                IncidentModel.status
+                == incident_status
             )
 
         count_statement = select(
             func.count(IncidentModel.incident_id)
         )
-
         list_statement = select(IncidentModel)
 
         if filters:
             count_statement = count_statement.where(
                 *filters
             )
-
             list_statement = list_statement.where(
                 *filters
             )
@@ -134,14 +127,11 @@ class IncidentRepository:
         count_result = await self.session.execute(
             count_statement
         )
-
         list_result = await self.session.execute(
             list_statement
         )
 
-        total = int(count_result.scalar_one())
-        incidents = list(
-            list_result.scalars().all()
+        return (
+            list(list_result.scalars().all()),
+            int(count_result.scalar_one()),
         )
-
-        return incidents, total

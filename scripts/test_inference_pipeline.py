@@ -5,11 +5,16 @@ from pathlib import Path
 
 import cv2
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
 
 sys.path.insert(0, str(SRC_DIR))
+
+from bts_monitoring.repositories.mission_rule_snapshot_repository import (
+    MissionRuleSnapshotRepository,
+)
+
+
 
 
 from bts_monitoring.core.config import get_settings
@@ -108,9 +113,13 @@ async def main() -> None:
                 session=session,
                 repository=incident_repository,
             )
+            snapshot_repository = (
+                MissionRuleSnapshotRepository(session)
+            )
 
             database_provider = DatabaseMissionRuleProvider(
-                repository=mission_rule_repository,
+                rule_repository=mission_rule_repository,
+                snapshot_repository=snapshot_repository,
             )
 
             cache = MissionRuleCache(

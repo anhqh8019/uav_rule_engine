@@ -1,19 +1,5 @@
-from dataclasses import dataclass
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-@dataclass(frozen=True)
-class Site:
-    site_id: str
-    name: str
-    latitude: float
-    longitude: float
-    tower_type: str
-    height_m: float | None
-    region: str
-
-
 from sqlalchemy import Float, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from bts_monitoring.database.base import Base
 
@@ -26,13 +12,36 @@ class SiteModel(Base):
         primary_key=True,
     )
 
-    name: Mapped[str] = mapped_column(String(255))
-    latitude: Mapped[float] = mapped_column(Float)
-    longitude: Mapped[float] = mapped_column(Float)
-    tower_type: Mapped[str] = mapped_column(String(50))
-    height_m: Mapped[float | None] = mapped_column(Float, nullable=True)
-    region: Mapped[str] = mapped_column(String(100))
-    
+    name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    latitude: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+
+    longitude: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+
+    tower_type: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+    )
+
+    height_m: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    region: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+
     cameras = relationship(
         "CameraModel",
         back_populates="site",

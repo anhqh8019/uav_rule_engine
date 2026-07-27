@@ -3,12 +3,13 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     DateTime,
+    ForeignKey,
     Index,
     Integer,
     String,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from bts_monitoring.database.base import Base
 
@@ -29,19 +30,19 @@ class IncidentModel(Base):
     )
 
     site_id: Mapped[str] = mapped_column(
-        String(100),
+        ForeignKey("sites.site_id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
 
     camera_id: Mapped[str] = mapped_column(
-        String(100),
+        ForeignKey("cameras.camera_id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
 
     source_event_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        ForeignKey("ai_events.event_id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -88,6 +89,7 @@ class IncidentModel(Base):
     last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
+        index=True,
     )
 
     occurrence_count: Mapped[int] = mapped_column(
@@ -117,7 +119,10 @@ class IncidentModel(Base):
     )
 
     rule_snapshot_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True),
+        ForeignKey(
+            "mission_rule_snapshots.snapshot_id",
+            ondelete="RESTRICT",
+        ),
         nullable=True,
         index=True,
     )
@@ -132,10 +137,25 @@ class IncidentModel(Base):
         nullable=True,
     )
 
+    source_event = relationship(
+        "AIEventModel",
+        back_populates="incidents",
+    )
+
     __table_args__ = (
         Index(
             "ix_incidents_mission_snapshot",
             "mission_id",
             "rule_snapshot_version",
+        ),
+        Index(
+            "ix_incidents_open_dedup",
+            "deduplication_key",
+            "status",
+        ),
+        Index(
+            "ix_incidents_site_last_seen",
+            "site_id",
+            "last_seen_at",
         ),
     )

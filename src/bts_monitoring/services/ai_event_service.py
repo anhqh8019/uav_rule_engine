@@ -20,7 +20,6 @@ from bts_monitoring.schemas.ai_event import (
 )
 
 
-
 class AIEventService:
     def __init__(
         self,
@@ -44,7 +43,6 @@ class AIEventService:
             payload.site_id
         )
 
-
         if site is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -61,13 +59,16 @@ class AIEventService:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=(
-                    f"Camera '{payload.camera_id}' not found"
+                    f"Camera '{payload.camera_id}' "
+                    "not found"
                 ),
             )
 
         if camera.site_id != payload.site_id:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY
+                ),
                 detail=(
                     f"Camera '{payload.camera_id}' does not "
                     f"belong to site '{payload.site_id}'"
@@ -80,31 +81,7 @@ class AIEventService:
 
         if commit:
             await self.session.commit()
-
-        event = AIEventModel(
-            mission_id=payload.mission_id,
-            site_id=payload.site_id,
-            camera_id=payload.camera_id,
-            event_type=payload.event_type,
-            confidence=payload.confidence,
-            model_name=payload.model_name,
-            model_version=payload.model_version,
-            captured_at=payload.captured_at,
-            received_at=payload.received_at,
-            bbox=payload.bbox,
-            polygon=payload.polygon,
-            attributes=payload.attributes,
-            evidence_uri=payload.evidence_uri,
-            rule_snapshot_id=(
-                payload.rule_snapshot_id
-            ),
-            rule_snapshot_version=(
-                payload.rule_snapshot_version
-            ),
-            rule_snapshot_checksum=(
-                payload.rule_snapshot_checksum
-            ),
-        )
+            await self.session.refresh(event)
 
         return event
 

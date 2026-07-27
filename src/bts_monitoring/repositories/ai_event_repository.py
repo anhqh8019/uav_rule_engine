@@ -19,15 +19,11 @@ class AIEventRepository:
         self,
         payload: AIEventCreate,
     ) -> AIEventModel:
-        data = payload.model_dump(
-            mode="json",
+        event = AIEventModel(
+            **payload.model_dump(mode="python")
         )
 
-        event = AIEventModel(**data)
-
         self.session.add(event)
-
-        # Gửi INSERT xuống database nhưng chưa commit.
         await self.session.flush()
         await self.session.refresh(event)
 
@@ -38,7 +34,7 @@ class AIEventRepository:
         event_id: UUID,
     ) -> AIEventModel | None:
         statement = select(AIEventModel).where(
-            AIEventModel.event_id == event_id,
+            AIEventModel.event_id == event_id
         )
 
         result = await self.session.execute(statement)
@@ -76,30 +72,31 @@ class AIEventRepository:
 
         if min_confidence is not None:
             filters.append(
-                AIEventModel.confidence >= min_confidence
+                AIEventModel.confidence
+                >= min_confidence
             )
 
         if captured_from:
             filters.append(
-                AIEventModel.captured_at >= captured_from
+                AIEventModel.captured_at
+                >= captured_from
             )
 
         if captured_to:
             filters.append(
-                AIEventModel.captured_at <= captured_to
+                AIEventModel.captured_at
+                <= captured_to
             )
 
         count_statement = select(
             func.count(AIEventModel.event_id)
         )
-
         list_statement = select(AIEventModel)
 
         if filters:
             count_statement = count_statement.where(
                 *filters
             )
-
             list_statement = list_statement.where(
                 *filters
             )
@@ -108,7 +105,9 @@ class AIEventRepository:
 
         list_statement = (
             list_statement
-            .order_by(AIEventModel.captured_at.desc())
+            .order_by(
+                AIEventModel.captured_at.desc()
+            )
             .offset(offset)
             .limit(page_size)
         )
@@ -116,15 +115,14 @@ class AIEventRepository:
         count_result = await self.session.execute(
             count_statement
         )
-
         list_result = await self.session.execute(
             list_statement
         )
 
-        total = int(count_result.scalar_one())
-        events = list(list_result.scalars().all())
-
-        return events, total
+        return (
+            list(list_result.scalars().all()),
+            int(count_result.scalar_one()),
+        )
 
     async def count_recent_events(
         self,

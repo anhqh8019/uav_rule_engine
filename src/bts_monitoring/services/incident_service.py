@@ -4,15 +4,8 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bts_monitoring.core.enums import (
-    IncidentSeverity,
-)
-from bts_monitoring.database.models.ai_event import (
-    AIEventModel,
-)
-from bts_monitoring.database.models.incident import (
-    IncidentModel,
-)
+from bts_monitoring.database.models.ai_event import AIEventModel
+from bts_monitoring.database.models.incident import IncidentModel
 from bts_monitoring.repositories.incident_repository import (
     IncidentRepository,
 )
@@ -21,9 +14,7 @@ from bts_monitoring.schemas.incident import (
     IncidentListResponse,
     IncidentResponse,
 )
-from bts_monitoring.services.rule_engine.base import (
-    RuleResult,
-)
+from bts_monitoring.services.rule_engine.base import RuleResult
 
 
 SEVERITY_PRIORITY = {
@@ -44,6 +35,43 @@ class IncidentService:
         self.session = session
         self.repository = repository
 
+    async def create_or_update_from_rule(
+        self,
+        *,
+        event: AIEventModel,
+        result: RuleResult,
+        commit: bool = False,
+    ) -> IncidentModel:
+        self._validate_rule_result(result)
+
+        deduplication_key = result.deduplication_key
+        assert deduplication_key is not None
+
+        existing = (
+            await self.repository
+            .find_active_by_deduplication_key(
+                deduplication_key
+            )
+        )
+
+        if existing is not None:
+            incident = await self._update_existing(
+                existing=existing,
+                event=event,
+                result=result,
+            )
+        else:
+            incident = await self._create_new(
+                event=event,
+                result=result,
+            )
+
+        if commit:
+            await self.session.commit()
+            await self.session.refresh(incident)
+
+        return incident
+
     async def handle_rule_result(
         self,
         *,
@@ -51,90 +79,64 @@ class IncidentService:
         result: RuleResult,
         commit: bool = False,
     ) -> IncidentModel:
-        if not result.triggered:
-            raise ValueError(
-                "Cannot create incident from "
-                "non-triggered rule result"
-            )
-
-        if not result.deduplication_key:
-            raise ValueError(
-                "Rule result requires deduplication_key"
-            )
-
-        existing = (
-            await self.repository
-            .find_active_by_deduplication_key(
-                result.deduplication_key
-            )
+        """Backward-compatible alias for older callers."""
+        return await self.create_or_update_from_rule(
+            event=event,
+            result=result,
+            commit=commit,
         )
 
-        if existing is not None:
-            existing.last_seen_at = event.captured_at
-            existing.occurrence_count += 1
-            existing.source_event_id = event.event_id
+    async def _update_existing(
+        self,
+        *,
+        existing: IncidentModel,
+        event: AIEventModel,
+        result: RuleResult,
+    ) -> IncidentModel:
+        existing.source_event_id = event.event_id
+        existing.last_seen_at = event.captured_at
+        existing.occurrence_count += 1
 
-            if self._is_higher_severity(
-                result.severity,
-                existing.severity,
-            ):
-                existing.severity = result.severity
+        if self._is_higher_severity(
+            result.severity,
+            existing.severity,
+        ):
+            assert result.severity is not None
+            existing.severity = result.severity
 
-            if result.message:
-                existing.message = result.message
+        if result.title:
+            existing.title = result.title
 
-            await self.session.flush()
-            await self.session.refresh(existing)
-
-            if commit:
-                await self.session.commit()
-
-            existing.source_event_id = event.event_id
+        if result.message:
             existing.message = result.message
-            existing.last_seen_at = event.captured_at
-            existing.occurrence_count += 1
 
-            existing.mission_id = event.mission_id
+        existing.mission_id = event.mission_id
+        existing.rule_snapshot_id = (
+            event.rule_snapshot_id
+        )
+        existing.rule_snapshot_version = (
+            event.rule_snapshot_version
+        )
+        existing.rule_snapshot_checksum = (
+            event.rule_snapshot_checksum
+        )
 
-            existing.rule_snapshot_id = (
-                event.rule_snapshot_id
-            )
+        await self.session.flush()
+        await self.session.refresh(existing)
 
-            existing.rule_snapshot_version = (
-                event.rule_snapshot_version
-            )
+        return existing
 
-            existing.rule_snapshot_checksum = (
-                event.rule_snapshot_checksum
-            )
-
-            return existing
+    async def _create_new(
+        self,
+        *,
+        event: AIEventModel,
+        result: RuleResult,
+    ) -> IncidentModel:
+        assert result.incident_type is not None
+        assert result.severity is not None
+        assert result.deduplication_key is not None
 
         payload = IncidentCreate(
-            site_id=event.site_id,
-            camera_id=event.camera_id,
-            source_event_id=event.event_id,
-            incident_type=result.incident_type,
-            severity=IncidentSeverity(
-                result.severity
-            ),
-            title=result.title or result.incident_type,
-            message=result.message,
-            deduplication_key=(
-                result.deduplication_key
-            ),
-            first_seen_at=event.captured_at,
-            last_seen_at=event.captured_at,
-        )
-
-        incident = await self.repository.create(
-            payload
-        )
-
-        if commit:
-            await self.session.commit()
-
-        incident = IncidentModel(
             mission_id=event.mission_id,
             site_id=event.site_id,
             camera_id=event.camera_id,
@@ -142,8 +144,14 @@ class IncidentService:
             incident_type=result.incident_type,
             severity=result.severity,
             status="open",
-            title=result.title,
-            message=result.message,
+            title=(
+                result.title
+                or result.incident_type
+            ),
+            message=(
+                result.message
+                or result.incident_type
+            ),
             deduplication_key=(
                 result.deduplication_key
             ),
@@ -165,7 +173,7 @@ class IncidentService:
             ),
         )
 
-        return incident
+        return await self.repository.create(payload)
 
     async def get_incident(
         self,
@@ -202,13 +210,17 @@ class IncidentService:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
-                    f"Cannot acknowledge incident "
+                    "Cannot acknowledge incident "
                     f"in status '{incident.status}'"
                 ),
             )
 
         incident.status = "acknowledged"
-        incident.acknowledged_at = datetime.now(UTC)
+
+        if incident.acknowledged_at is None:
+            incident.acknowledged_at = (
+                datetime.now(UTC)
+            )
 
         if assigned_to is not None:
             incident.assigned_to = assigned_to
@@ -235,7 +247,7 @@ class IncidentService:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
-                    f"Incident is already "
+                    "Incident is already "
                     f"'{incident.status}'"
                 ),
             )
@@ -285,6 +297,14 @@ class IncidentService:
             incident_id
         )
 
+        if incident.status == "closed":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Cannot assign a closed incident"
+                ),
+            )
+
         incident.assigned_to = assigned_to
 
         await self.session.commit()
@@ -311,6 +331,33 @@ class IncidentService:
             page=filters["page"],
             page_size=filters["page_size"],
         )
+
+    @staticmethod
+    def _validate_rule_result(
+        result: RuleResult,
+    ) -> None:
+        if not result.triggered:
+            raise ValueError(
+                "Cannot create incident from "
+                "a non-triggered rule result"
+            )
+
+        if not result.incident_type:
+            raise ValueError(
+                "Triggered rule result requires "
+                "incident_type"
+            )
+
+        if not result.severity:
+            raise ValueError(
+                "Triggered rule result requires severity"
+            )
+
+        if not result.deduplication_key:
+            raise ValueError(
+                "Triggered rule result requires "
+                "deduplication_key"
+            )
 
     @staticmethod
     def _is_higher_severity(

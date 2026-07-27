@@ -37,6 +37,7 @@ from bts_monitoring.services.rule_engine.rules.smoke import (
 from bts_monitoring.services.rule_engine.rules.tower_tilt import (
     TowerTiltRule,
 )
+from bts_monitoring.services.rule_engine.snapshot.service import MissionRuleSnapshotService
 from bts_monitoring.services.site_service import SiteService
 
 from bts_monitoring.repositories.mission_rule_repository import (
@@ -88,9 +89,10 @@ from bts_monitoring.services.rule_engine.providers.base import (
 from bts_monitoring.repositories.mission_rule_snapshot_repository import (
     MissionRuleSnapshotRepository,
 )
-from bts_monitoring.services.rule_engine.snapshots.service import (
-    MissionRuleSnapshotService,
-)
+
+# from bts_monitoring.services.rule_engine.snapshots.service import (
+#     MissionRuleSnapshotService,
+# )
 
 
 # =========================================================
@@ -245,14 +247,7 @@ def get_mission_rule_cache(
         ),
     )
 
-def get_database_mission_rule_provider(
-    repository: MissionRuleRepository = Depends(
-        get_mission_rule_repository
-    ),
-) -> DatabaseMissionRuleProvider:
-    return DatabaseMissionRuleProvider(
-        repository=repository,
-    )
+
 def get_mission_rule_provider(
     cache: MissionRuleCache = Depends(
         get_mission_rule_cache
@@ -354,6 +349,17 @@ def get_mission_rule_service(
         event_publisher=event_publisher,
     )
 
-
+def get_database_mission_rule_provider(
+    rule_repository: MissionRuleRepository = Depends(
+        get_mission_rule_repository
+    ),
+    snapshot_repository: MissionRuleSnapshotRepository = Depends(
+        get_mission_rule_snapshot_repository
+    ),
+) -> DatabaseMissionRuleProvider:
+    return DatabaseMissionRuleProvider(
+        rule_repository=rule_repository,
+        snapshot_repository=snapshot_repository,
+    )
 
 

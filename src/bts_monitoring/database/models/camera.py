@@ -15,7 +15,7 @@ class CameraModel(Base):
     site_id: Mapped[str] = mapped_column(
         ForeignKey(
             "sites.site_id",
-            ondelete="RESTRICT",
+            ondelete="CASCADE",
         ),
         nullable=False,
         index=True,
@@ -29,12 +29,11 @@ class CameraModel(Base):
     camera_role: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-        index=True,
     )
 
-    stream_url_secret_ref: Mapped[str] = mapped_column(
+    stream_url_secret_ref: Mapped[str | None] = mapped_column(
         String(500),
-        nullable=False,
+        nullable=True,
     )
 
     enabled: Mapped[bool] = mapped_column(
